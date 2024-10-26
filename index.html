@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Falling Blocks Game</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+        }
+        .canvas-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        canvas {
+            width: 100%;
+            height: auto;
+            max-height: 100%;
+            aspect-ratio: 9 / 16;
+            border: 1px solid #ccc;
+            position: absolute; /* Make canvas overlay other elements */
+        }
+        .score-board {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 20px;
+            z-index: 10; /* Ensures score is on top */
+        }
+        .game-over {
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: rgb(255, 255, 255);
+            background: rgba(255, 0, 0, 0.7);
+            padding: 30px;
+            font-size: 40px;
+            z-index: 10; /* Ensures Game Over text is on top */
+            display: none; /* Initially hidden */
+        }
+        .button {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 15px 30px;
+            font-size: 20px;
+            color: white;
+            background-color: #4CAF50;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div class="canvas-container">
+        <canvas id="responsiveCanvas"></canvas>
+        <div class="score-board">
+            Score: <span id="score">0</span><br>
+            High Score: <span id="highScore">0</span>
+        </div>
+        <div class="game-over" id="gameOverText">Game Over</div>
+        <button class="button" id="startButton">Start Game</button>
+        <button class="button" id="restartButton" style="display: none;">Restart Game</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('responsiveCanvas');
+        const context = canvas.getContext('2d');
+        let blocks = [];
+        let blockSpeed = 500; 
+        const blockMargin = 20; 
+        let score = 0;
+        let highScore = localStorage.getItem('highScore') || 0;
+        let gameOver = false;
+        let audio = new Audio();
+        let currentSongIndex = -1;
+        let firstTap = false; // Track if the first tile has been tapped
+    
+        function resizeCanvas() {
+            const containerWidth = window.innerWidth;
+            const containerHeight = window.innerHeight;
+            const aspectRatio = 9 / 16;
+    
+            if (containerWidth / containerHeight > aspectRatio) {
+                canvas.height = containerHeight;
+                canvas.width = containerHeight * aspectRatio;
+            } else {
+                canvas.width = containerWidth;
+                canvas.height = containerWidth / aspectRatio;
+            }
+            drawCanvasContent();
+        }
+    
+        function drawCanvasContent() {
+            const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
+            gradient.addColorStop(0, '#2c3e50');
+            gradient.addColorStop(1, '#4a00e0');
+            context.fillStyle = gradient;
+            context.fillRect(0, 0, canvas.width, canvas.height);
+    
+            const columnWidth = canvas.width / 4;
+            context.strokeStyle = "#ffffff";
+            context.lineWidth = 2;
+    
+            for (let i = 0; i < 4; i++) {
+                const x = i * columnWidth;
+                context.beginPath();
+                context.rect(x, 0, columnWidth, canvas.height);
+                context.stroke();
+            }
+        }
+    
+        function updateScoreDisplay() {
+            document.getElementById('score').innerText = score;
+            document.getElementById('highScore').innerText = highScore;
+        }
+    
+        function createBlock() {
+            const columnWidth = canvas.width / 4;
+            const blockHeight = columnWidth * (16 / 9);
+            const column = Math.floor(Math.random() * 4);
+            const x = column * columnWidth;
+            const y = -0.2 * window.innerHeight; 
+    
+            const topMostBlockInColumn = blocks.filter(b => b.column === column).sort((a, b) => a.y - b.y)[0];
+            const spaceAvailable = !topMostBlockInColumn || topMostBlockInColumn.y > blockHeight * 1.5;
+    
+            if (spaceAvailable) {
+                blocks.push({ x, y, width: columnWidth, height: blockHeight, column });
+            }
+        }
+    
+        function updateBlocks(deltaTime) {
+            blocks = blocks.filter(block => block.y < canvas.height);
+    
+            blocks.forEach(block => {
+                block.y += (blockSpeed * deltaTime) / 1000;
+    
+                context.fillStyle = "#ff6347";
+                context.fillRect(block.x, block.y, block.width, block.height);
+                context.strokeStyle = "#ffffff";
+                context.lineWidth = 2;
+                context.strokeRect(block.x, block.y, block.width, block.height);
+            });
+    
+            // Deduct score for any block that passes the canvas
+            blocks.forEach(block => {
+                if (block.y > canvas.height) {
+                    score -= 10;
+                    blocks.splice(blocks.indexOf(block), 1); // Remove the passed block
+                }
+            });
+        }
+    
+        function detectBlockTap(event) {
+            if (gameOver) return;
+    
+            const rect = canvas.getBoundingClientRect();
+            const clickX = event.clientX - rect.left;
+            const clickY = event.clientY - rect.top;
+            let blockTapped = false;
+    
+            for (let i = blocks.length - 1; i >= 0; i--) {
+                const block = blocks[i];
+                if (
+                    clickX >= block.x - blockMargin &&
+                    clickX <= block.x + block.width + blockMargin &&
+                    clickY >= block.y - blockMargin &&
+                    clickY <= block.y + block.height + blockMargin
+                ) {
+                    score++;
+                    blocks.splice(i, 1);
+                    blockTapped = true;
+    
+                    // Increase speed for every 10 points scored
+                    if (score % 10 === 0) {
+                        blockSpeed += 50; 
+                    }
+    
+                    if (score > highScore) {
+                        highScore = score;
+                        localStorage.setItem('highScore', highScore);
+                    }
+                    updateScoreDisplay();
+    
+                    // Play song only on the first tap
+                    if (!firstTap) {
+                        playRandomSong(); // Play song when the first block is tapped
+                        firstTap = true; // Set first tap to true
+                    }
+    
+                    break;
+                }
+            }
+    
+            if (!blockTapped) {
+                endGame();
+            }
+        }
+    
+        function endGame() {
+            gameOver = true;
+            audio.pause(); // Stop the current song
+            document.getElementById('gameOverText').style.display = 'block';
+            document.getElementById('restartButton').style.display = 'block'; // Show restart button
+    
+            // Play a new random song after a short delay
+            setTimeout(() => {
+                playRandomSong(); // Play a new random song when the game ends
+            }, 1000); // Delay before playing new song
+        }
+    
+        function resetGame() {
+            score = 0;
+            blocks = [];
+            blockSpeed = 500; // Reset speed for a new game
+            firstTap = false; // Reset first tap state
+            updateScoreDisplay();
+            audio.pause(); // Stop any playing song
+            gameOver = false; // Reset game over state
+            document.getElementById('gameOverText').style.display = 'none'; // Hide game over text
+            document.getElementById('restartButton').style.display = 'none'; // Hide restart button
+            animate(); // Start the animation loop
+        }
+    
+        function playRandomSong() {
+            if (audio.src) {
+                audio.pause(); // Stop the current song
+            }
+            currentSongIndex = Math.floor(Math.random() * 5) + 1; // Get a random index between 1 and 5
+            audio.src = `${currentSongIndex}.mp3`;
+            audio.play();
+        }
+    
+        let lastTime = 0;
+        function animate(time = 0) {
+            if (gameOver) return;
+    
+            const deltaTime = time - lastTime;
+            lastTime = time;
+    
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            drawCanvasContent();
+            updateBlocks(deltaTime);
+    
+            requestAnimationFrame(animate);
+        }
+    
+        document.getElementById('startButton').addEventListener('click', () => {
+            document.getElementById('startButton').style.display = 'none'; // Hide start button
+            animate(); // Start animation
+            setInterval(createBlock, 400); // Start creating blocks
+        });
+    
+        document.getElementById('restartButton').addEventListener('click', resetGame);
+    
+        window.addEventListener('resize', resizeCanvas);
+        canvas.addEventListener('click', detectBlockTap);
+        updateScoreDisplay();
+        resizeCanvas(); // Initial canvas resize
+    </script>
+    
+    
+</body>
+</html>
